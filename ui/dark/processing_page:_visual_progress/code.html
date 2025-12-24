@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html class="dark" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>处理页：可视化进度</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#3b82f6", 
+                        "background-light": "#f6f6f8",
+                        "background-dark": "#0f172a", 
+                        "surface-dark": "#1e293b", 
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"],
+                        "mono": ["ui-monospace", "SFMono-Regular", "Menlo", "Monaco", "Consolas", "Liberation Mono", "Courier New", "monospace"]
+                    },
+                    borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "2xl": "1rem", "full": "9999px"},
+                    animation: {
+                        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                        'scan': 'spin 4s linear infinite',
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        .mask-gradient-y {
+            mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%);
+            -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%);
+        }@keyframes cursor-blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
+        }
+        .cursor-blink {
+            animation: cursor-blink 1s step-end infinite;
+        }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-200 transition-colors duration-300 min-h-screen flex flex-col overflow-hidden selection:bg-primary/30">
+<div class="absolute top-0 right-0 p-6 z-20">
+<button class="group flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition-all hover:bg-slate-200 dark:hover:bg-white/10 border border-transparent dark:hover:border-white/10">
+<span class="material-symbols-outlined text-[20px] transition-transform group-hover:rotate-90">close</span>
+            取消处理
+        </button>
+</div>
+<main class="flex-1 flex flex-col items-center justify-center w-full max-w-5xl mx-auto px-4 sm:px-6 relative z-10 -mt-10">
+<div class="relative mb-12 group">
+<div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-80 h-80 bg-primary/20 rounded-full blur-[80px] animate-pulse-slow"></div>
+<div class="relative w-48 h-48 md:w-56 md:h-56 rounded-full bg-surface-dark/50 border border-slate-700/50 shadow-2xl backdrop-blur-sm flex items-center justify-center overflow-hidden ring-1 ring-white/10">
+<div class="absolute inset-0 opacity-20 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-primary/40 via-transparent to-transparent"></div>
+<div class="absolute inset-0 opacity-10" style="background-image: radial-gradient(#60a5fa 1px, transparent 1px); background-size: 20px 20px;">
+</div>
+<div class="absolute inset-0 opacity-40 bg-cover bg-center mix-blend-overlay" data-alt="Abstract cybernetic circular radar grid pattern" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuBX3_f-o-S_pywnVrI58g_Yhcel6aPT4jzwNr_4g6ekXg2KWCyUMNmFDdIarQ-EuSY29qKqGAivgA97lNExnKPb-GmuDjvX2Y4XTAcoGGaE-4q-2xlTBN6PAKJBa7Ippqhq8UDshUZZO7Ssc-Mz9Z9D0yuLq0xa872Z6zV46sP6YS1eiu2TXfIXlcUlbTEC8hXrwHhAuuVHIkM2Qy4XgYSsBBwZ6z1RVL4HGzkMZsJLO9TKQ6zM4AYyVzWiNp0xvJOs4dtzmlFzjQ');"></div>
+<div class="absolute inset-0 bg-[conic-gradient(from_0deg,transparent_0_300deg,var(--tw-gradient-stops))] from-primary/0 via-primary/40 to-primary/0 animate-scan opacity-70"></div>
+<div class="absolute inset-0 rounded-full border border-primary/20 animate-[ping_3s_cubic-bezier(0,0,0.2,1)_infinite]"></div>
+<div class="absolute inset-4 rounded-full border border-primary/10 animate-[ping_3s_cubic-bezier(0,0,0.2,1)_infinite_1.5s]"></div>
+<div class="relative z-10 bg-background-dark p-5 rounded-full border border-primary/30 shadow-[0_0_15px_rgba(59,130,246,0.5)]">
+<span class="material-symbols-outlined text-4xl md:text-5xl text-primary animate-pulse">radar</span>
+</div>
+</div>
+</div>
+<div class="text-center max-w-lg mb-10 space-y-4">
+<h2 class="text-3xl md:text-4xl font-bold tracking-tight text-slate-900 dark:text-white">
+                正在分析项目数据
+            </h2>
+<p class="text-base text-slate-500 dark:text-slate-400 font-light">
+                系统正在深度扫描代码库与文档，构建全景时间线...
+            </p>
+</div>
+<div class="w-full max-w-2xl relative mb-24 md:mb-0 group">
+<div class="absolute -inset-0.5 bg-gradient-to-b from-primary/20 to-transparent rounded-xl blur opacity-20 group-hover:opacity-40 transition duration-1000"></div>
+<div class="bg-white/50 dark:bg-surface-dark/40 backdrop-blur-md rounded-xl border border-slate-200 dark:border-slate-700/50 shadow-xl overflow-hidden h-64 md:h-72 relative">
+<div class="px-4 py-3 border-b border-slate-200/50 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-900/50 flex items-center justify-between">
+<div class="flex items-center gap-2">
+<div class="flex gap-1.5">
+<div class="w-2.5 h-2.5 rounded-full bg-red-500/80"></div>
+<div class="w-2.5 h-2.5 rounded-full bg-yellow-500/80"></div>
+<div class="w-2.5 h-2.5 rounded-full bg-green-500/80"></div>
+</div>
+<span class="ml-3 text-xs font-mono text-slate-500 dark:text-slate-400 font-medium">System_Log.log</span>
+</div>
+<div class="flex items-center gap-2 text-xs text-slate-400 font-mono">
+<span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
+                        LIVE
+                    </div>
+</div>
+<div class="h-full p-5 overflow-y-hidden relative">
+<div class="absolute inset-0 pointer-events-none bg-gradient-to-b from-white via-transparent to-white dark:from-surface-dark dark:via-transparent dark:to-surface-dark opacity-10 z-10"></div>
+<ul class="font-mono text-sm space-y-3 pb-12 relative z-0 flex flex-col justify-end h-full">
+<li class="flex items-start gap-3 opacity-20 text-slate-500 dark:text-slate-400">
+<span class="text-green-500 shrink-0 mt-0.5 material-symbols-outlined text-[14px]">check_circle</span>
+<span>初始化扫描序列 v2.4.1 [OK]</span>
+</li>
+<li class="flex items-start gap-3 opacity-40 text-slate-600 dark:text-slate-300">
+<span class="text-blue-400 shrink-0 mt-0.5 material-symbols-outlined text-[14px]">terminal</span>
+<span>连接数据源: GitHub Enterprise API...</span>
+</li>
+<li class="flex items-start gap-3 opacity-60 text-slate-600 dark:text-slate-300">
+<span class="text-blue-400 shrink-0 mt-0.5 material-symbols-outlined text-[14px]">folder_open</span>
+<span>发现Git仓库: <span class="text-slate-900 dark:text-white font-semibold">/Project-A</span> (提交128次)...</span>
+</li>
+<li class="flex items-start gap-3 opacity-80 text-slate-600 dark:text-slate-300">
+<span class="text-purple-400 shrink-0 mt-0.5 material-symbols-outlined text-[14px]">description</span>
+<span>读取周报: <span class="text-slate-900 dark:text-white font-semibold">2024-W32.docx</span>...</span>
+</li>
+<li class="flex items-start gap-3 text-slate-900 dark:text-white font-medium">
+<span class="text-primary shrink-0 mt-0.5 material-symbols-outlined text-[14px] animate-spin">sync</span>
+<span>正在分析会议记录...<span class="w-2 h-4 bg-primary/80 ml-1 inline-block align-middle cursor-blink"></span></span>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</main>
+<footer class="fixed bottom-0 left-0 w-full z-30 border-t border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-background-dark/95 backdrop-blur-xl">
+<div class="max-w-5xl mx-auto px-6 py-5 flex flex-col gap-3">
+<div class="flex justify-between items-end mb-1">
+<div class="flex flex-col gap-0.5">
+<p class="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">预计剩余时间</p>
+<p class="text-xl font-mono font-medium text-slate-700 dark:text-slate-200 tabular-nums tracking-tight">00:45</p>
+</div>
+<div class="text-right">
+<p class="text-3xl font-bold text-primary tabular-nums tracking-tighter">72<span class="text-lg align-top opacity-60">%</span></p>
+</div>
+</div>
+<div class="relative h-0.5 w-full bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
+<div class="absolute top-0 left-0 h-full bg-primary w-[72%] shadow-[0_0_10px_rgba(59,130,246,0.6)] transition-all duration-1000 ease-linear rounded-full"></div>
+</div>
+<div class="flex justify-between items-center text-xs text-slate-500 dark:text-slate-400 mt-1">
+<span class="flex items-center gap-1.5">
+<span class="w-1.5 h-1.5 rounded-full bg-primary"></span>
+                    步骤 3/4: 内容深度分析
+                </span>
+<span class="font-mono opacity-60">ID: #8821-XJ</span>
+</div>
+</div>
+</footer>
+
+</body></html>

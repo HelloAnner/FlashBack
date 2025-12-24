@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>首页：极简输入</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#1337ec",
+                        "background-light": "#f8fafc", // Slightly cooler white for light theme
+                        "surface": "#ffffff",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"]
+                    },
+                    borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "2xl": "1rem", "full": "9999px"},
+                    boxShadow: {
+                        'glass': '0 8px 32px 0 rgba(31, 38, 135, 0.07)',
+                        'glass-hover': '0 8px 32px 0 rgba(31, 38, 135, 0.12)',
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+    </style>
+</head>
+<body class="bg-background-light text-slate-900 font-display min-h-screen flex flex-col overflow-x-hidden relative selection:bg-primary/20 selection:text-primary">
+<div class="fixed top-[-10%] left-[-10%] w-[60vw] h-[60vh] bg-blue-200/40 rounded-full blur-[100px] pointer-events-none z-0 mix-blend-multiply animate-pulse"></div>
+<div class="fixed bottom-[-10%] right-[-5%] w-[50vw] h-[50vh] bg-purple-200/40 rounded-full blur-[100px] pointer-events-none z-0 mix-blend-multiply"></div>
+<div class="fixed top-[20%] right-[20%] w-[30vw] h-[30vh] bg-indigo-200/30 rounded-full blur-[80px] pointer-events-none z-0 mix-blend-multiply"></div>
+<header class="relative z-20 w-full px-6 py-4 flex items-center justify-between border-b border-slate-200/60 bg-white/60 backdrop-blur-md supports-[backdrop-filter]:bg-white/40">
+<div class="flex items-center gap-3">
+<div class="size-9 text-primary flex items-center justify-center bg-white rounded-xl border border-slate-100 shadow-sm">
+<span class="material-symbols-outlined text-2xl">grid_view</span>
+</div>
+<h1 class="text-lg font-bold tracking-tight text-slate-800">RetroView</h1>
+</div>
+<div class="flex items-center gap-6">
+<nav class="hidden md:flex items-center gap-6 text-sm font-medium text-slate-500">
+<a class="hover:text-primary transition-colors duration-200" href="#">历史记录</a>
+<a class="hover:text-primary transition-colors duration-200" href="#">分析报告</a>
+<a class="hover:text-primary transition-colors duration-200" href="#">系统设置</a>
+</nav>
+<div class="h-6 w-px bg-slate-200 hidden md:block"></div>
+<button class="flex items-center gap-2 text-sm font-medium hover:text-primary transition-colors focus:outline-none">
+<div class="size-9 rounded-full bg-gradient-to-tr from-blue-100 to-purple-100 p-[2px]">
+<div class="size-full rounded-full bg-white flex items-center justify-center overflow-hidden border border-white" data-alt="User profile avatar placeholder">
+<span class="material-symbols-outlined text-slate-400 text-sm">person</span>
+</div>
+</div>
+</button>
+</div>
+</header>
+<main class="relative z-10 flex-1 flex flex-col items-center justify-center px-4 w-full max-w-7xl mx-auto py-12">
+<div class="w-full max-w-4xl flex flex-col items-center gap-12">
+<div class="text-center space-y-5">
+<h2 class="text-4xl md:text-5xl lg:text-6xl font-black tracking-tight text-slate-900 leading-tight">
+                    项目回溯
+                </h2>
+<p class="text-lg text-slate-500 font-normal max-w-xl mx-auto leading-relaxed">
+                    设定回顾范围。选择年份和工作目录，开启您的全景扫描。
+                </p>
+</div>
+<div class="w-full max-w-3xl flex flex-col gap-3 mt-2">
+<div class="relative group flex items-center w-full transform transition-transform duration-300 hover:scale-[1.01]">
+<div class="absolute inset-0 bg-white/80 border border-white/60 rounded-2xl backdrop-blur-xl shadow-glass transition-all duration-300 group-focus-within:ring-4 group-focus-within:ring-primary/10 group-focus-within:border-primary/30 group-hover:shadow-glass-hover"></div>
+<div class="relative z-10 flex w-full items-center p-2">
+<div class="flex-1 flex items-center h-16 md:h-20 px-4 md:px-6">
+<span class="material-symbols-outlined text-slate-400 text-3xl md:text-4xl mr-5 select-none group-focus-within:text-primary transition-colors">calendar_today</span>
+<div class="flex flex-col justify-center w-full">
+<label class="sr-only" for="year-input">年份</label>
+<input class="w-full bg-transparent border-none text-3xl md:text-4xl font-semibold text-slate-800 placeholder-slate-300 focus:ring-0 p-0 tracking-tight leading-none" id="year-input" placeholder="YYYY" type="text" value="2024"/>
+</div>
+</div>
+<div class="h-10 md:h-12 w-px bg-slate-200 mx-2"></div>
+<div class="relative flex items-center pl-2 pr-2 md:pr-4">
+<button class="flex flex-col items-start gap-1 group/dir cursor-pointer outline-none rounded-xl p-3 hover:bg-slate-50/80 transition-all text-left min-w-[140px] md:min-w-[220px]">
+<span class="text-[10px] md:text-xs font-bold text-slate-400 uppercase tracking-widest group-hover/dir:text-primary transition-colors">工作目录</span>
+<div class="flex items-center gap-2 text-slate-600 group-hover/dir:text-slate-900 transition-colors">
+<span class="material-symbols-outlined text-lg md:text-xl text-slate-400 group-hover/dir:text-primary">folder_open</span>
+<span class="text-sm font-medium truncate max-w-[100px] md:max-w-[160px]">/Users/Dev/Work</span>
+</div>
+</button>
+</div>
+<button class="hidden md:flex h-16 md:px-8 items-center justify-center bg-primary hover:bg-blue-700 text-white rounded-xl font-bold text-base tracking-wide transition-all shadow-lg shadow-blue-500/30 hover:shadow-blue-500/50 active:scale-95 ml-2 whitespace-nowrap">
+                            开始回溯
+                        </button>
+</div>
+</div>
+<button class="md:hidden w-full h-14 flex items-center justify-center bg-primary hover:bg-blue-700 text-white rounded-xl font-bold text-lg transition-all shadow-lg shadow-primary/20 active:scale-95 mt-2">
+                    开始回溯
+                </button>
+<div class="flex justify-between px-4 text-xs text-slate-400 font-medium mt-3 select-none">
+<span class="flex items-center gap-2">
+<kbd class="font-sans px-2 py-1 bg-white rounded-md border border-slate-200 text-slate-500 shadow-sm text-[10px]">Enter</kbd>
+<span>开始分析</span>
+</span>
+<span class="flex items-center gap-1 cursor-pointer hover:text-primary transition-colors group">
+<span class="material-symbols-outlined text-sm text-slate-400 group-hover:text-primary">history</span>
+                        最近: <span class="text-slate-500 font-semibold group-hover:text-primary">/2023-Retrospective</span>
+</span>
+</div>
+</div>
+<div class="w-full max-w-3xl mt-8 pt-8 border-t border-slate-200/60">
+<div class="flex items-center justify-between mb-6">
+<p class="text-sm text-slate-500 font-bold uppercase tracking-widest">最近回顾</p>
+<a class="text-xs text-primary hover:text-blue-600 font-semibold transition-colors flex items-center gap-1" href="#">
+                        查看全部
+                        <span class="material-symbols-outlined text-sm">arrow_right_alt</span>
+</a>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+<a class="group block p-5 rounded-2xl bg-white border border-slate-200 shadow-sm hover:shadow-md hover:border-primary/30 transition-all hover:-translate-y-1 duration-200" href="#">
+<div class="flex items-center justify-between mb-4">
+<span class="text-2xl font-semibold text-slate-700 group-hover:text-primary transition-colors">2023</span>
+<div class="size-8 rounded-full bg-slate-50 flex items-center justify-center group-hover:bg-primary/10 transition-colors border border-slate-100 group-hover:border-primary/10">
+<span class="material-symbols-outlined text-slate-400 group-hover:text-primary text-sm transition-colors">arrow_forward</span>
+</div>
+</div>
+<div class="flex items-center gap-1.5 text-xs text-slate-400 font-medium">
+<span class="material-symbols-outlined text-[14px]">folder</span>
+<span class="truncate font-mono">/Projects/2023</span>
+</div>
+</a>
+<a class="group block p-5 rounded-2xl bg-white border border-slate-200 shadow-sm hover:shadow-md hover:border-primary/30 transition-all hover:-translate-y-1 duration-200" href="#">
+<div class="flex items-center justify-between mb-4">
+<span class="text-2xl font-semibold text-slate-700 group-hover:text-primary transition-colors">Q4 22</span>
+<div class="size-8 rounded-full bg-slate-50 flex items-center justify-center group-hover:bg-primary/10 transition-colors border border-slate-100 group-hover:border-primary/10">
+<span class="material-symbols-outlined text-slate-400 group-hover:text-primary text-sm transition-colors">arrow_forward</span>
+</div>
+</div>
+<div class="flex items-center gap-1.5 text-xs text-slate-400 font-medium">
+<span class="material-symbols-outlined text-[14px]">folder</span>
+<span class="truncate font-mono">/Work/Archived</span>
+</div>
+</a>
+<a class="group block p-5 rounded-2xl bg-white border border-slate-200 shadow-sm hover:shadow-md hover:border-primary/30 transition-all hover:-translate-y-1 duration-200" href="#">
+<div class="flex items-center justify-between mb-4">
+<span class="text-2xl font-semibold text-slate-700 group-hover:text-primary transition-colors">Alpha</span>
+<div class="size-8 rounded-full bg-slate-50 flex items-center justify-center group-hover:bg-primary/10 transition-colors border border-slate-100 group-hover:border-primary/10">
+<span class="material-symbols-outlined text-slate-400 group-hover:text-primary text-sm transition-colors">arrow_forward</span>
+</div>
+</div>
+<div class="flex items-center gap-1.5 text-xs text-slate-400 font-medium">
+<span class="material-symbols-outlined text-[14px]">folder</span>
+<span class="truncate font-mono">D:\Clients\Acme</span>
+</div>
+</a>
+</div>
+</div>
+</div>
+</main>
+<footer class="w-full py-6 text-center text-slate-500 text-sm relative z-10 border-t border-slate-200/60 bg-white/40 backdrop-blur-sm">
+<div class="flex items-center justify-center gap-4">
+<span>© 2024 RetroView Analytics</span>
+<span class="text-slate-300">•</span>
+<a class="hover:text-slate-800 transition-colors" href="#">隐私政策</a>
+<span class="text-slate-300">•</span>
+<a class="hover:text-slate-800 transition-colors" href="#">帮助文档</a>
+</div>
+</footer>
+
+</body></html>
