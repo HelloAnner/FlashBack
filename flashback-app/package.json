@@ -1,0 +1,14 @@
+{
+  "name": "flashback-app",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "pnpm --filter ./frontend dev",
+    "build": "pnpm --filter ./frontend build && tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}
