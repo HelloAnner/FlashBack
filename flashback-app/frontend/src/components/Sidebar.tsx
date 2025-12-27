@@ -31,6 +31,12 @@ export default function Sidebar() {
               <Link
                 key={s.key}
                 to={s.path}
+                onClick={() => {
+                  // 要求：每次点击首页都刷新项目数据
+                  if (s.path === '/') {
+                    window.dispatchEvent(new CustomEvent('refresh-projects'))
+                  }
+                }}
                 className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all duration-200 group ${
                   active
                     ? 'bg-primary/10 text-slate-900 dark:text-white border border-primary/20'

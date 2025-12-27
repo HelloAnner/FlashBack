@@ -1,20 +1,55 @@
-import { useNavigate } from 'react-router-dom'
-import { useState, useEffect } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { mkdir, BaseDirectory } from '@tauri-apps/plugin-fs'
 import ThemeToggle from '../components/ThemeToggle'
 import Sidebar from '../components/Sidebar'
 import CustomSelect from '../components/CustomSelect'
-import { initDatabase, getProjects, type Project } from '../lib/tauri'
+import Pagination from '../components/Pagination'
+import DeleteConfirmModal from '../components/DeleteConfirmModal'
+import { initDatabase, getProjectsPaginated, deleteProject, createProject, type Project, type ProjectListResponse } from '../lib/tauri'
 
 export default function App() {
   const navigate = useNavigate()
+  const location = useLocation()
   const [projectName, setProjectName] = useState<string>('')
   const [timeRange, setTimeRange] = useState<string>('past_year')
-  const [projects, setProjects] = useState<Project[]>([])
-  const [currentProject, setCurrentProject] = useState<Project | null>(null)
-  const [loading, setLoading] = useState(true)
 
-  // 初始化：创建 FlashBack 目录、初始化数据库、加载项目列表
+  // 分页相关状态
+  const [pageData, setPageData] = useState<ProjectListResponse>({
+    projects: [],
+    total: 0,
+    page: 1,
+    total_pages: 0
+  })
+  const [currentPage, setCurrentPage] = useState(1)
+  const PAGE_SIZE = 5
+
+  // UI 状态
+  const [loading, setLoading] = useState(true)
+  const [deleting, setDeleting] = useState<string | null>(null)
+
+  // 删除确认弹窗
+  const [deleteModal, setDeleteModal] = useState({
+    isOpen: false,
+    projectName: ''
+  })
+
+  // 路由监听状态
+  const prevPathRef = useRef<string>('')
+
+  // 加载项目列表（分页）放最前，供下面所有 effect 使用
+  const loadProjects = useCallback(async (page: number) => {
+    try {
+      const response = await getProjectsPaginated(page, PAGE_SIZE)
+      setPageData(response)
+      setCurrentPage(page)
+      console.log(`已加载项目列表 (第 ${page} 页):`, response.projects.length, '个，共', response.total, '个')
+    } catch (e) {
+      console.error('加载项目列表失败:', e)
+    }
+  }, [])
+
+  // 初始化：创建 FlashBack 目录、初始化数据库
   useEffect(() => {
     async function initApp() {
       try {
@@ -26,10 +61,8 @@ export default function App() {
         await initDatabase()
         console.log('数据库初始化完成')
 
-        // 加载项目列表
-        const projectList = await getProjects()
-        setProjects(projectList)
-        console.log('已加载项目列表:', projectList.length, '个项目')
+        // 加载项目列表（第一页）
+        await loadProjects(1)
       } catch (e) {
         console.error('初始化失败:', e)
       } finally {
@@ -40,26 +73,110 @@ export default function App() {
     initApp()
   }, [])
 
+  // 当路由变化到首页时，重新加载项目列表
+  useEffect(() => {
+    // 每次进入首页都刷新数据
+    if (location.pathname === '/') {
+      console.log('首页，重新加载项目列表')
+      loadProjects(1)
+    }
+
+    // 记录上一次路径，用于检测路由变化
+    prevPathRef.current = location.pathname
+  }, [location.pathname])
+
+  // 监听来自 Sidebar 的刷新事件（点击左侧“首页”时会触发）
+  useEffect(() => {
+    const handler = () => {
+      console.log('收到 refresh-projects 事件，重新加载项目列表...')
+      loadProjects(1)
+    }
+    window.addEventListener('refresh-projects' as any, handler)
+    return () => window.removeEventListener('refresh-projects' as any, handler)
+  }, [loadProjects])
+
   // 处理开始扫描（自动创建项目）
-  const handleStartScan = () => {
-    const name = currentProject?.name || projectName.trim()
+  const handleStartScan = async () => {
+    const name = projectName.trim()
     if (!name) {
-      alert('请输入项目名称或选择已有项目')
+      alert('请输入项目名称')
       return
     }
 
-    navigate('/processing', {
-      state: {
-        projectName: name,
-        timeRange
+    try {
+      // 先创建项目（如果不存在）
+      console.log('开始创建项目:', name, timeRange)
+      await createProject({ name, time_range: timeRange })
+      console.log('项目创建成功')
+
+      // 重新加载项目列表，显示新项目
+      await loadProjects(currentPage)
+
+      // 清空输入框
+      setProjectName('')
+
+      // 跳转到扫描页面
+      navigate('/processing', {
+        state: {
+          projectName: name,
+          timeRange
+        }
+      })
+    } catch (e) {
+      console.error('创建项目失败:', e)
+      // 如果项目已存在，也跳转到扫描页面
+      if (String(e).includes('UNIQUE constraint')) {
+        navigate('/processing', {
+          state: {
+            projectName: name,
+            timeRange
+          }
+        })
+      } else {
+        alert(`创建项目失败: ${e}`)
       }
+    }
+  }
+
+  // 处理分页变化
+  const handlePageChange = (page: number) => {
+    loadProjects(page)
+  }
+
+  // 处理删除确认
+  const handleDeleteClick = (projectName: string) => {
+    setDeleteModal({
+      isOpen: true,
+      projectName
     })
   }
 
-  // 选择项目
-  const handleSelectProject = (project: Project) => {
-    setCurrentProject(project)
-    setProjectName(project.name)
+  // 执行删除
+  const handleConfirmDelete = async () => {
+    const projectName = deleteModal.projectName
+    if (!projectName) return
+
+    setDeleting(projectName)
+    try {
+      await deleteProject(projectName)
+      console.log('项目已删除:', projectName)
+
+      // 关闭弹窗
+      setDeleteModal({ isOpen: false, projectName: '' })
+
+      // 重新加载当前页（如果当前页没有数据了，跳到上一页）
+      await loadProjects(currentPage)
+    } catch (e) {
+      console.error('删除项目失败:', e)
+      alert(`删除失败: ${e}`)
+    } finally {
+      setDeleting(null)
+    }
+  }
+
+  // 关闭弹窗
+  const handleCloseModal = () => {
+    setDeleteModal({ isOpen: false, projectName: '' })
   }
 
   const timeRangeOptions = [
@@ -119,7 +236,7 @@ export default function App() {
                 />
               </div>
 
-              {/* 开始扫描按钮 - 增加下方间距避免被下拉框遮挡 */}
+              {/* 开始扫描按钮 */}
               <div className="mt-6">
                 <button
                   onClick={handleStartScan}
@@ -132,54 +249,98 @@ export default function App() {
             </div>
           </div>
 
-          {/* 项目列表 */}
+          {/* 项目列表 - 表格格式 */}
           <div className="w-full max-w-2xl mt-4">
-            <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm rounded-xl border border-slate-200/60 dark:border-slate-700/60 p-4">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">
-                  已有项目 ({projects.length})
-                </p>
+            <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xl overflow-hidden">
+
+              {/* 表头 */}
+              <div className="flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-700">
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[16px] text-primary">folder_special</span>
+                  <span className="text-[12px] font-bold text-slate-700 dark:text-slate-200">已有项目</span>
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400 ml-1">({pageData.total} 个)</span>
+                </div>
                 {loading && (
-                  <span className="text-[10px] text-slate-400">加载中...</span>
+                  <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
+                    加载中...
+                  </span>
                 )}
               </div>
 
-              {projects.length === 0 ? (
-                <div className="text-center py-6">
-                  <p className="text-[11px] text-slate-400 dark:text-slate-500">
-                    暂无项目，请创建一个新项目
-                  </p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto">
-                  {projects.map((project) => (
-                    <button
+              {/* 表格内容 */}
+              <div className="divide-y divide-slate-200 dark:divide-slate-700 min-h-[180px]">
+                {pageData.projects.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-center">
+                    <span className="material-symbols-outlined text-[40px] text-slate-300 dark:text-slate-600 mb-2">inbox</span>
+                    <p className="text-[12px] text-slate-500 dark:text-slate-400 mb-1">暂无项目数据</p>
+                    <p className="text-[11px] text-slate-400 dark:text-slate-500">请在上方创建新项目</p>
+                  </div>
+                ) : (
+                  pageData.projects.map((project) => (
+                    <div
                       key={project.id}
-                      onClick={() => handleSelectProject(project)}
-                      className={`group block w-full text-left p-3 rounded-lg border transition-all ${
-                        currentProject?.id === project.id
-                          ? 'bg-blue-50 dark:bg-blue-900/20 border-primary'
-                          : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:border-primary/30 dark:hover:border-primary/50 hover:shadow-md'
-                      }`}
+                      className="flex items-center justify-between px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group"
                     >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className={`text-[12px] font-semibold ${
-                          currentProject?.id === project.id
-                            ? 'text-primary'
-                            : 'text-slate-700 dark:text-slate-300'
-                        }`}>
-                          {project.name}
-                        </span>
-                        <span className="text-[9px] text-slate-400 dark:text-slate-500">
-                          {project.created_at.split(' ')[0]}
-                        </span>
+                      {/* 项目信息 */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <span className="text-[12px] font-semibold text-slate-900 dark:text-white truncate">
+                            {project.name}
+                          </span>
+                          <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded">
+                            {project.time_range === 'past_year' ? '一年' : project.time_range === 'past_month' ? '一月' : '一周'}
+                          </span>
+                          {project.scan_summary && (
+                            <span className="text-[9px] px-1.5 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 rounded">已扫描</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-3 text-[10px] text-slate-500 dark:text-slate-400 font-mono mt-0.5">
+                          <span className="flex items-center gap-0.5">
+                            <span className="material-symbols-outlined text-[10px]">folder</span>
+                            <span className="truncate max-w-[200px] md:max-w-[300px]">{project.folder_path}</span>
+                          </span>
+                          <span className="hidden md:inline">|</span>
+                          <span>{project.created_at.split(' ')[0]}</span>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-1 text-[10px] text-slate-400 dark:text-slate-500 font-mono">
-                        <span className="material-symbols-outlined text-[10px]">folder</span>
-                        <span className="truncate">{project.folder_path}</span>
+
+                      {/* 操作按钮 */}
+                      <div className="flex items-center gap-1 ml-2 shrink-0 opacity-60 group-hover:opacity-100 transition-opacity">
+                        {/* 选择按钮 */}
+                        <button
+                          title="选择项目并开始扫描"
+                          onClick={() => { setProjectName(project.name) }}
+                          className="p-1.5 rounded hover:bg-primary/10 text-slate-600 dark:text-slate-300 hover:text-primary transition-all"
+                        >
+                          <span className="material-symbols-outlined text-[16px]">check_circle</span>
+                        </button>
+
+                        {/* 删除按钮 */}
+                        <button
+                          title="删除项目"
+                          onClick={() => handleDeleteClick(project.name)}
+                          disabled={deleting === project.name}
+                          className="p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-600 dark:text-slate-300 hover:text-red-500 transition-all disabled:opacity-50 disabled:cursor-wait"
+                        >
+                          <span className="material-symbols-outlined text-[16px]">delete</span>
+                        </button>
                       </div>
-                    </button>
-                  ))}
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* 分页组件 */}
+              {pageData.total_pages > 1 && (
+                <div className="border-t border-slate-200 dark:border-slate-700">
+                  <Pagination
+                    currentPage={currentPage}
+                    totalPages={pageData.total_pages}
+                    totalItems={pageData.total}
+                    pageSize={PAGE_SIZE}
+                    onPageChange={handlePageChange}
+                  />
                 </div>
               )}
             </div>
@@ -188,6 +349,14 @@ export default function App() {
         </div>
 
       </main>
+
+      {/* 删除确认弹窗 */}
+      <DeleteConfirmModal
+        isOpen={deleteModal.isOpen}
+        onClose={handleCloseModal}
+        onConfirm={handleConfirmDelete}
+        projectName={deleteModal.projectName}
+      />
     </div>
   )
 }

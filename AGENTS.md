@@ -37,3 +37,9 @@
 - 启动本地开发：`make dev`；如遇 "Blocking waiting for file lock on package cache" 或端口占用，先执行 `make dev-clean`。
 - 保持 Vite 端口固定为 5173；否则 devUrl 漂移会导致能力（capabilities）校验失败，插件不可用。
 - 项目数据存储路径：`~/FlashBack/{project_name}/`，数据库文件：`~/FlashBack/flashback.db`。
+
+信息同步（2025-12-27）：
+- Tauri invoke 参数命名需与 Rust 命令签名一致，统一使用 snake_case。
+  - 例如：`create_project` 的参数名是 `project_input`；`start_scan` 的参数名是 `project_name`、`time_range`。
+  - 前端 `frontend/src/lib/tauri.ts` 已修正：调用 `invoke('create_project', { project_input })` 与 `invoke('start_scan', { project_name, time_range })`。
+- 首页数据刷新：每次进入首页路由 `/` 时都会调用 `get_projects_paginated` 重新拉取数据库；若未看到新项目，优先检查上述参数命名是否正确以及数据库是否写入成功。
