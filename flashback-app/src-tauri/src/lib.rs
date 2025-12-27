@@ -135,7 +135,7 @@ fn is_doc(path: &Path) -> bool {
 }
 
 #[tauri::command]
-fn start_scan(window: tauri::Window) -> Result<(), String> {
+fn start_scan(window: tauri::Window, work_dir: String) -> Result<(), String> {
     // 开新线程避免阻塞 UI
     std::thread::spawn(move || {
         let dev = std::env::var("DEV").unwrap_or_default() == "true";
@@ -143,6 +143,8 @@ fn start_scan(window: tauri::Window) -> Result<(), String> {
         if dev {
             let _ = window.emit("scan-log", LogPayload { icon: "shield", text: "DEV=true 检测到，跳过云端验证".into() });
         }
+
+        let _ = window.emit("scan-log", LogPayload { icon: "folder", text: format!("工作目录: {}", work_dir) });
 
         let mut summary = ScanSummary::default();
 
@@ -156,7 +158,10 @@ fn start_scan(window: tauri::Window) -> Result<(), String> {
 
         // 步骤 2：Git 仓库识别（只统计数量，避免重 I/O）
         let mut git_count = 0usize;
-        let roots = candidate_roots();
+        let mut roots = candidate_roots();
+        // 添加用户的工作目录
+        roots.push(PathBuf::from(&work_dir));
+
         for (idx, root) in roots.iter().enumerate() {
             if !root.exists() { continue; }
             let _ = window.emit("scan-log", LogPayload { icon: "folder_open", text: format!("扫描目录: {}", root.to_string_lossy()) });
@@ -215,7 +220,9 @@ fn get_scan_summary(state: tauri::State<Mutex<Option<ScanSummary>>>) -> Option<S
 pub fn run() {
     tauri::Builder::default()
         .manage::<Mutex<Option<ScanSummary>>>(Mutex::new(None))
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_fs::init())
         .invoke_handler(tauri::generate_handler![start_scan, get_scan_summary])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

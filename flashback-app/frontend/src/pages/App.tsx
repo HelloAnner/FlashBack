@@ -1,12 +1,33 @@
 import { useNavigate } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { mkdir, BaseDirectory } from '@tauri-apps/plugin-fs'
 import ThemeToggle from '../components/ThemeToggle'
 import Sidebar from '../components/Sidebar'
 
 export default function App() {
   const navigate = useNavigate()
+  const [workDir, setWorkDir] = useState<string>('')
+
+  // 初始化工作目录：默认为 ~/FlashBack，不存在则创建
+  useEffect(() => {
+    async function initWorkDir() {
+      try {
+        // 确保目录存在
+        await mkdir('FlashBack', { baseDir: BaseDirectory.Home, recursive: true })
+        setWorkDir('~/FlashBack')
+        console.log('工作目录已初始化: ~/FlashBack')
+      } catch (e) {
+        console.error('初始化工作目录失败:', e)
+        // 降级到临时目录
+        setWorkDir('/tmp/FlashBack')
+      }
+    }
+
+    initWorkDir()
+  }, [])
 
   const handleStart = () => {
-    navigate('/processing')
+    navigate('/processing', { state: { workDir } })
   }
 
   return (
@@ -26,7 +47,7 @@ export default function App() {
               项目回溯
             </h2>
             <p className="text-sm text-slate-500 dark:text-slate-400 font-normal max-w-xl mx-auto leading-relaxed">
-              设定回顾范围。选择年份和工作目录，开启您的全景扫描。
+              设定回顾范围。选择年份，开启您的全景扫描。
             </p>
           </div>
 
@@ -48,16 +69,6 @@ export default function App() {
                     onKeyDown={(e) => e.key === 'Enter' && handleStart()}
                   />
                 </div>
-                {/* 工作目录 */}
-                <div className="flex items-center px-3">
-                  <button className="flex flex-col items-start gap-1 p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
-                    <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">工作目录</span>
-                    <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300">
-                      <span className="material-symbols-outlined text-xl text-slate-400 dark:text-slate-500">folder_open</span>
-                      <span className="text-sm font-medium">/Users/Dev/Work</span>
-                    </div>
-                  </button>
-                </div>
                 {/* 开始按钮 */}
                 <button
                   onClick={handleStart}
@@ -69,17 +80,12 @@ export default function App() {
             </div>
 
             {/* 快捷键提示 */}
-            <div className="flex justify-between px-4 text-xs text-slate-400 dark:text-slate-500 font-medium select-none">
-              <span className="flex items-center gap-2">
-                <kbd className="font-sans px-2 py-1 bg-white dark:bg-slate-800 rounded-md border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 shadow-sm text-[10px]">Enter</kbd>
-                <span>开始分析</span>
-              </span>
+            <div className="flex justify-end px-4 text-xs text-slate-400 dark:text-slate-500 font-medium select-none">
               <span className="flex items-center gap-1">
                 <span className="material-symbols-outlined text-sm">history</span>
                 最近: <span className="text-slate-500 dark:text-slate-400 font-semibold">/2023-Retrospective</span>
               </span>
             </div>
-          </div>
 
           {/* 最近回顾 */}
           <div className="w-full max-w-4xl mt-12 pt-8 border-t border-slate-200/60 dark:border-slate-700/60">
@@ -94,7 +100,7 @@ export default function App() {
               {[
                 { year: '2023', path: '/Projects/2023' },
                 { year: 'Q4 22', path: '/Work/Archived' },
-                { year: 'Alpha', path: 'D:\\Clients\\Acme' }
+                { year: 'Alpha', path: 'D:\\\\Clients\\\\Acme' }
               ].map((item, i) => (
                 <a
                   key={i}
@@ -115,6 +121,7 @@ export default function App() {
               ))}
             </div>
           </div>
+        </div>
         </div>
       </main>
     </div>

@@ -3,8 +3,23 @@
   "identifier": "default",
   "description": "Capability for the main window",
   "windows": ["main"],
+  "local": true,
+  "remote": {
+    "urls": [
+      "http://localhost:5173",
+      "http://127.0.0.1:5173"
+    ]
+  },
   "permissions": [
     "core:default",
-    "opener:default"
+    "opener:default",
+    "dialog:default",
+    "dialog:allow-open",
+    "dialog:allow-save",
+    "dialog:allow-message",
+    "dialog:allow-ask",
+    "dialog:allow-confirm",
+    "fs:default",
+    "fs:allow-mkdir"
   ]
 }

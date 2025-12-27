@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --port 5173 --strictPort",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "tauri:dev": "cross-env DEV=true vite & wait-on tcp:5173 && tauri dev",
@@ -12,28 +12,30 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
+    "@tauri-apps/plugin-dialog": "^2.4.2",
+    "@tauri-apps/plugin-fs": "^2.4.4",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.0.0",
-    "lucide-react": "^0.474.0",
-    "tailwind-merge": "^2.5.2",
-    "react-router-dom": "^6.29.0",
     "framer-motion": "^11.0.0",
-    "sonner": "^1.5.0"
+    "lucide-react": "^0.474.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.29.0",
+    "sonner": "^1.5.0",
+    "tailwind-merge": "^2.5.2"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.3",
     "@tauri-apps/cli": "^2",
     "@types/node": "^22.7.5",
     "@types/react": "^18.2.24",
     "@types/react-dom": "^18.2.11",
+    "@vitejs/plugin-react": "^4.3.3",
     "autoprefixer": "^10.4.20",
+    "cross-env": "^7.0.3",
     "postcss": "^8.4.47",
     "tailwindcss": "^3.4.14",
     "typescript": "^5.6.3",
     "vite": "^5.4.8",
-    "cross-env": "^7.0.3",
     "wait-on": "^7.2.0"
   }
 }

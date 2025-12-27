@@ -1,6 +1,85 @@
+import { useEffect, useState } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
+import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import Sidebar from '../components/Sidebar'
 
+interface LogEntry {
+  icon: string
+  text: string
+}
+
+interface ProgressPayload {
+  progress: number
+}
+
+interface ScanSummary {
+  git_repos: number
+  documents: number
+  chat_locations: Array<{ app: string; path: string }>
+}
+
 export default function Processing() {
+  const navigate = useNavigate()
+  const location = useLocation()
+  const [logs, setLogs] = useState<LogEntry[]>([])
+  const [progress, setProgress] = useState(0)
+  const [workDir, setWorkDir] = useState<string>('')
+
+  useEffect(() => {
+    // 从路由状态获取工作目录，或使用默认值
+    const state = location.state as { workDir?: string } | null
+    const dir = state?.workDir || ''
+    setWorkDir(dir)
+    console.log('Processing - workDir:', dir)
+  }, [location.state])
+
+  useEffect(() => {
+    if (!workDir) return
+
+    let unlistenLog: (() => void) | undefined
+    let unlistenProgress: (() => void) | undefined
+    let unlistenDone: (() => void) | undefined
+
+    const setupListeners = async () => {
+      // 监听日志
+      unlistenLog = await listen<{ icon: string; text: string }>('scan-log', (event) => {
+        setLogs(prev => [...prev, { icon: event.payload.icon, text: event.payload.text }])
+      })
+
+      // 监听进度
+      unlistenProgress = await listen<ProgressPayload>('scan-progress', (event) => {
+        setProgress(event.payload.progress)
+      })
+
+      // 监听完成
+      unlistenDone = await listen<ScanSummary>('scan-done', (event) => {
+        console.log('Scan completed:', event.payload)
+        // 延迟跳转到结果页面
+        setTimeout(() => {
+          navigate('/results', { state: { summary: event.payload } })
+        }, 1000)
+      })
+
+      // 启动扫描
+      try {
+        console.log('Starting scan with workDir:', workDir)
+        await invoke('start_scan', { workDir })
+      } catch (e) {
+        console.error('Scan failed:', e)
+        setLogs(prev => [...prev, { icon: 'error', text: `扫描失败: ${e}` }])
+      }
+    }
+
+    setupListeners()
+
+    return () => {
+      unlistenLog?.()
+      unlistenProgress?.()
+      unlistenDone?.()
+    }
+  }, [workDir, navigate])
+
   return (
     <div className="flex min-h-screen bg-slate-50 dark:bg-slate-900 font-display">
       <Sidebar />
@@ -8,6 +87,20 @@ export default function Processing() {
 
         {/* 主要内容 */}
         <div className="flex-1 flex flex-col items-center justify-center px-8 py-12 w-full max-w-5xl mx-auto">
+          {/* 进度条 */}
+          <div className="w-full max-w-3xl mb-8">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium text-slate-600 dark:text-slate-300">扫描进度</span>
+              <span className="text-sm font-mono text-primary">{progress}%</span>
+            </div>
+            <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
+              <div
+                className="bg-primary h-2 rounded-full transition-all duration-300 ease-out"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+          </div>
+
           {/* 雷达扫描动画 */}
           <div className="relative mb-12">
             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-72 h-72 bg-primary/20 rounded-full blur-[80px] animate-pulse-slow" />
@@ -51,36 +144,38 @@ export default function Processing() {
                   LIVE
                 </div>
               </div>
-              <div className="h-64 p-5 overflow-hidden">
+              <div className="h-64 p-5 overflow-hidden relative">
                 <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-white dark:from-[#1e293b] via-transparent to-white dark:to-[#1e293b] opacity-40 z-10" />
-                <ul className="font-mono text-sm space-y-3 pb-12 relative z-0 flex flex-col justify-end h-full">
-                  <li className="flex items-start gap-3 text-slate-500 dark:text-slate-500">
-                    <span className="text-green-500 shrink-0 mt-0.5 material-symbols-outlined text-[14px]">check_circle</span>
-                    <span>初始化扫描序列 v2.4.1 [OK]</span>
-                  </li>
-                  <li className="flex items-start gap-3 text-slate-600 dark:text-slate-400">
-                    <span className="text-blue-400 shrink-0 mt-0.5 material-symbols-outlined text-[14px]">terminal</span>
-                    <span>连接数据源: GitHub Enterprise API...</span>
-                  </li>
-                  <li className="flex items-start gap-3 text-slate-600 dark:text-slate-400">
-                    <span className="text-blue-400 shrink-0 mt-0.5 material-symbols-outlined text-[14px]">folder_open</span>
-                    <span>发现Git仓库: <span className="text-slate-900 dark:text-white font-semibold">/Project-A</span> (提交128次)...</span>
-                  </li>
-                  <li className="flex items-start gap-3 text-slate-600 dark:text-slate-400">
-                    <span className="text-purple-400 shrink-0 mt-0.5 material-symbols-outlined text-[14px]">description</span>
-                    <span>读取周报: 2024-W32.docx...</span>
-                  </li>
-                  <li className="flex items-start gap-3 text-slate-900 dark:text-white font-medium">
-                    <span className="text-primary shrink-0 mt-0.5 material-symbols-outlined text-[14px] animate-spin">sync</span>
-                    <span>正在分析会议记录...<span className="w-2 h-4 bg-primary/80 ml-1 inline-block align-middle cursor-blink"></span></span>
-                  </li>
+                <ul className="font-mono text-sm space-y-3 pb-12 relative z-0 flex flex-col justify-end h-full overflow-y-auto">
+                  {logs.length === 0 ? (
+                    <li className="flex items-start gap-3 text-slate-500 dark:text-slate-500">
+                      <span className="text-blue-400 shrink-0 mt-0.5 material-symbols-outlined text-[14px]">hourglass</span>
+                      <span>等待扫描启动...</span>
+                    </li>
+                  ) : (
+                    logs.map((log, idx) => (
+                      <li key={idx} className="flex items-start gap-3 text-slate-600 dark:text-slate-400">
+                        <span className={`shrink-0 mt-0.5 material-symbols-outlined text-[14px] ${
+                          log.icon === 'check_circle' ? 'text-green-500' :
+                          log.icon === 'error' ? 'text-red-500' :
+                          log.icon === 'shield' ? 'text-yellow-500' :
+                          log.icon === 'folder' ? 'text-blue-400' :
+                          log.icon === 'folder_open' ? 'text-blue-400' :
+                          log.icon === 'chat' ? 'text-purple-400' :
+                          log.icon === 'description' ? 'text-purple-400' :
+                          log.icon === 'data_object' ? 'text-cyan-400' :
+                          log.icon === 'sync' ? 'text-primary animate-spin' :
+                          'text-slate-400'
+                        }`}>{log.icon}</span>
+                        <span className={log.icon === 'sync' ? 'font-medium text-slate-900 dark:text-white' : ''}>{log.text}</span>
+                      </li>
+                    ))
+                  )}
                 </ul>
               </div>
             </div>
           </div>
         </div>
-
-        {/* 底部区域 */}
       </main>
     </div>
   )

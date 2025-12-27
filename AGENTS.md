@@ -18,4 +18,12 @@
 
 变更日志：
 - 2025-12-25 初始化 Tauri 工程 flashback-app，接入前端 React/Vite，主题切换与步骤解锁；实现本地扫描（Git/文档/聊天路径识别）。
+ - 2025-12-26 开发体验与权限完善：
+   - 新增 `make dev-clean`：清理 5173 端口残留、终止 tauri/cargo 进程、释放 cargo 包缓存锁；`make dev` 自动调用。
+   - `make dev` 并发启动：Vite(`--strictPort 5173`) + `tauri dev`，前后端热更新稳定；默认 `DEV=true`。
+   - 能力权限：启用 `tauri-plugin-dialog` 并在 `src-tauri/capabilities/default.json` 授权 `"dialog:default"`；为开发模式添加 `remote.urls` 白名单（`http://localhost:5173`、`http://127.0.0.1:5173`）。
+   - 前端 `工作目录` 选择：通过 `@tauri-apps/plugin-dialog` 的 `open({ directory: true, defaultPath })` 实现，并在首次调用前聚焦主窗口避免无响应。
 
+使用约定（重要）：
+- 启动本地开发：`make dev`；如遇 "Blocking waiting for file lock on package cache" 或端口占用，先执行 `make dev-clean`。
+- 保持 Vite 端口固定为 5173；否则 devUrl 漂移会导致能力（capabilities）校验失败，插件不可用。
