@@ -30,3 +30,6 @@ git2 = { version = "0.19", default-features = false, features = ["https"] }
 dirs = "5"
 machine-uid = "0.5"
 thiserror = "1"
+rusqlite = { version = "0.31", features = ["bundled"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = "0.4"
