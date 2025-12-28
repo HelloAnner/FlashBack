@@ -166,7 +166,15 @@ export async function getSummary(): Promise<ScanSummary | null> {
 
 // 获取扫描结果（分页）
 export async function getResultsPaginated(project_id: string, page: number, page_size: number): Promise<Paged<ResultItem>> {
-  return await invoke('get_results_paginated', { project_id, page, page_size })
+  try {
+    console.log('API call get_results_paginated:', { project_id, page, page_size })
+    const result = await invoke<Paged<ResultItem>>('get_results_paginated', { project_id, page, page_size })
+    console.log('API result:', result)
+    return result
+  } catch (error) {
+    console.error('API error:', error)
+    throw error
+  }
 }
 
 // ====== KV 配置 ======

@@ -104,19 +104,52 @@ export default function Processing() {
         }
       })
 
-      // 启动扫描（必须拿到 projectId，若缺失则通过名称补齐 id 并回写后端 KV，再按 id 扫描）
+      // 获取项目信息并检查是否已有扫描结果
       try {
-        console.log('Starting scan:', { projectId, projectName, timeRange })
         let pid = projectId
+        let projectData = null
+
+        // 通过名称获取项目详情
         if (!pid && projectName) {
           try {
             const p = await getProjectByName(projectName)
             if (p) {
               pid = p.id
+              projectData = p
               await setCurrentProject(pid)
+              setProjectId(pid)
             }
           } catch {}
+        } else if (pid) {
+          // 如果已有 projectId，尝试获取项目详情
+          try {
+            const p = await getProjectByName(projectName)
+            if (p) projectData = p
+          } catch {}
         }
+
+        // 检查是否已有扫描结果（scan_summary 不为空）
+        if (projectData && projectData.scan_summary) {
+          console.log('已有扫描结果，直接显示:', projectData.scan_summary)
+          setScanSummary(projectData.scan_summary)
+          setScanComplete(true)
+
+          // 加载已有数据
+          if (pid) {
+            try {
+              const res = await getResultsPaginatedAdv({ project_id: pid, page, page_size: PAGE_SIZE, q: query, file_types: typesFilter })
+              setItems(res.items)
+              setTotal(res.total)
+              setTotalPages(res.total_pages)
+            } catch (e) {
+              console.error('加载已有结果失败:', e)
+            }
+          }
+          return  // 跳过自动扫描
+        }
+
+        // 没有扫描结果，启动扫描
+        console.log('开始扫描:', { projectId: pid, projectName, timeRange })
         if (pid) {
           await startScanWithId(
             pid,
@@ -128,7 +161,7 @@ export default function Processing() {
             }
           )
         } else {
-          // 兜底：老流程；提示用户尽快在首页设置为当前项目
+          // 兜底：老流程
           if (projectName && timeRange) {
             await startScan(
               projectName,
@@ -220,44 +253,57 @@ export default function Processing() {
 
         {/* 侧边栏占位空间 */}
         <div className="flex-1 flex flex-col items-center justify-center px-8 py-8 w-full max-w-4xl mx-auto">
-          {/* 进度条 */}
-          {/* 进度条 + 当前扫描目录 + 总数 */}
-          <div className="w-full max-w-2xl mb-4">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-[12px] font-medium text-slate-600 dark:text-slate-300">扫描进度</span>
-              <span className="text-[12px] font-mono text-primary">{progress}%</span>
-            </div>
-            <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-1.5 overflow-hidden">
-              <div className="bg-primary h-1.5 rounded-full transition-all duration-300 ease-out" style={{ width: `${progress}%` }} />
-            </div>
-            <div className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between">
-              <span className="truncate">当前目录：{currentFolder || '等待开始...'}</span>
-              <span>已入库：{total} 条</span>
-            </div>
-          </div>
+          {/* 进度条 - 仅在扫描中显示 */}
+          {!scanComplete && (
+            <>
+              <div className="w-full max-w-2xl mb-4">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[12px] font-medium text-slate-600 dark:text-slate-300">扫描进度</span>
+                  <span className="text-[12px] font-mono text-primary">{progress}%</span>
+                </div>
+                <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-1.5 overflow-hidden">
+                  <div className="bg-primary h-1.5 rounded-full transition-all duration-300 ease-out" style={{ width: `${progress}%` }} />
+                </div>
+                <div className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between">
+                  <span className="truncate">当前目录：{currentFolder || '等待开始...'}</span>
+                  <span>已入库：{total} 条</span>
+                </div>
+              </div>
 
-          {/* 雷达扫描动画 */}
-          <div className="relative mb-6">
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-32 bg-primary/20 rounded-full blur-[40px] animate-pulse-slow" />
-            <div className="relative w-24 h-24 rounded-full bg-white dark:bg-[#1e293b] border border-slate-200 dark:border-slate-700 shadow-xl flex items-center justify-center overflow-hidden ring-1 ring-slate-900/5 dark:ring-white/10">
-              <div className="absolute inset-0 opacity-20 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-primary/40 via-transparent to-transparent" />
-              <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(#60a5fa 1px, transparent 1px)', backgroundSize: '12px 12px' }} />
-              <div className="absolute inset-0 bg-[conic-gradient(from_0deg,transparent_0_300deg,var(--tw-gradient-stops))] from-primary/0 via-primary/40 to-primary/0 animate-scan opacity-70" />
-              <div className="absolute inset-0 rounded-full border border-primary/20 animate-[ping_3s_cubic-bezier(0,0,0.2,1)_infinite]" />
-              <div className="absolute inset-2 rounded-full border border-primary/10 animate-[ping_3s_cubic-bezier(0,0,0.2,1)_infinite_1.5s]" />
-              <div className="relative z-10 bg-white dark:bg-[#0f172a] p-2.5 rounded-full border border-primary/30 shadow-[0_0_12px_rgba(59,130,246,0.5)]">
-                <span className="material-symbols-outlined text-[12px] text-primary animate-pulse">radar</span>
+              {/* 雷达扫描动画 */}
+              <div className="relative mb-6">
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-32 bg-primary/20 rounded-full blur-[40px] animate-pulse-slow" />
+                <div className="relative w-24 h-24 rounded-full bg-white dark:bg-[#1e293b] border border-slate-200 dark:border-slate-700 shadow-xl flex items-center justify-center overflow-hidden ring-1 ring-slate-900/5 dark:ring-white/10">
+                  <div className="absolute inset-0 opacity-20 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-primary/40 via-transparent to-transparent" />
+                  <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(#60a5fa 1px, transparent 1px)', backgroundSize: '12px 12px' }} />
+                  <div className="absolute inset-0 bg-[conic-gradient(from_0deg,transparent_0_300deg,var(--tw-gradient-stops))] from-primary/0 via-primary/40 to-primary/0 animate-scan opacity-70" />
+                  <div className="absolute inset-0 rounded-full border border-primary/20 animate-[ping_3s_cubic-bezier(0,0,0.2,1)_infinite]" />
+                  <div className="absolute inset-2 rounded-full border border-primary/10 animate-[ping_3s_cubic-bezier(0,0,0.2,1)_infinite_1.5s]" />
+                  <div className="relative z-10 bg-white dark:bg-[#0f172a] p-2.5 rounded-full border border-primary/30 shadow-[0_0_12px_rgba(59,130,246,0.5)]">
+                    <span className="material-symbols-outlined text-[12px] text-primary animate-pulse">radar</span>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* 已有结果提示 - 仅在扫描完成且有数据时显示 */}
+          {scanComplete && total > 0 && (
+            <div className="relative mb-6">
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-24 h-24 bg-green-500/20 rounded-full blur-[30px]" />
+              <div className="relative w-24 h-24 rounded-full bg-white dark:bg-[#1e293b] border border-green-200 dark:border-green-700 shadow-xl flex items-center justify-center overflow-hidden ring-1 ring-slate-900/5 dark:ring-white/10">
+                <span className="material-symbols-outlined text-[24px] text-green-600 dark:text-green-400">check_circle</span>
               </div>
             </div>
-          </div>
+          )}
 
           {/* 标题 */}
           <div className="text-center max-w-lg mb-6 space-y-1">
             <h2 className="text-[12px] font-bold tracking-tight text-slate-900 dark:text-white">
-              {scanComplete ? '扫描完成' : `正在分析: ${projectName}`}
+              {scanComplete ? (total > 0 ? '已有扫描结果' : '扫描完成') : `正在分析: ${projectName}`}
             </h2>
             <p className="text-[11px] text-slate-500 dark:text-slate-400 font-light">
-              {scanComplete ? '数据已准备就绪，请选择下一步操作' : (
+              {scanComplete ? (total > 0 ? `共 ${total} 条数据，可直接查看` : '数据已准备就绪，请选择下一步操作') : (
                 <>
                   时间范围: {timeRange === 'past_year' ? '过去一年' : timeRange === 'past_month' ? '过去一个月' : '过去一周'}
                 </>
@@ -275,7 +321,16 @@ export default function Processing() {
                 <span className="material-symbols-outlined text-[12px]">palette</span>
                 选择风格
               </button>
-              {/* 将“重新扫描”移动到原“查看结果”的位置与样式 */}
+              {/* 查看结果按钮 - 跳转到 Results 页面 */}
+              <button
+                onClick={() => navigate('/results', { state: { projectId, projectName } })}
+                disabled={!projectId || total === 0}
+                className="flex items-center gap-1 px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium text-[12px] shadow-lg shadow-green-500/30 transition-all active:scale-95 disabled:opacity-50"
+              >
+                <span className="material-symbols-outlined text-[12px]">table_view</span>
+                查看结果
+              </button>
+              {/* 重新扫描 */}
               <button
                 onClick={handleRescan}
                 disabled={!projectId}

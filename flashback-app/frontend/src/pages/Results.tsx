@@ -35,10 +35,24 @@ export default function Results() {
   }, [location.state])
 
   useEffect(() => {
-    if (!projectId) return
+    if (!projectId) {
+      console.warn('No projectId available for results page')
+      setItems([])
+      return
+    }
+
+    console.log('Loading results:', { projectId, page, PAGE_SIZE })
+
     getResultsPaginated(projectId, page, PAGE_SIZE)
-      .then(res => { setItems(res.items); setTotal(res.total); setTotalPages(res.total_pages) })
-      .catch(console.error)
+      .then(res => {
+        console.log('Results loaded:', res)
+        setItems(res.items)
+        setTotal(res.total)
+        setTotalPages(res.total_pages)
+      })
+      .catch(error => {
+        console.error('Failed to load results:', error)
+      })
   }, [projectId, page])
 
   return (

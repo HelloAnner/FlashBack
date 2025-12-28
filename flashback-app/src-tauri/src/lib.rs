@@ -523,24 +523,64 @@ fn get_current_project(db: tauri::State<DatabaseManager>) -> Result<Option<Proje
     Ok(None)
 }
 
+/**
+ * 删除项目及其所有关联数据
+ *
+ * @param db 数据库管理器
+ * @param name 项目名称
+ * @return Result<(), String>
+ */
 #[tauri::command]
 fn delete_project(db: tauri::State<DatabaseManager>, name: String) -> Result<(), String> {
     let conn = db.get_connection().map_err(|e| e.to_string())?;
 
-    // 先查询项目路径
+    // 先查询项目ID和路径
     let mut stmt = conn
-        .prepare("SELECT folder_path FROM projects WHERE name = ?")
+        .prepare("SELECT id, folder_path FROM projects WHERE name = ?")
         .map_err(|e| e.to_string())?;
     let mut rows = stmt.query(&[&name]).map_err(|e| e.to_string())?;
 
     if let Some(row) = rows.next().map_err(|e| e.to_string())? {
-        let folder_path: String = row.get(0).map_err(|e| e.to_string())?;
+        let project_id: String = row.get(0).map_err(|e| e.to_string())?;
+        let folder_path: String = row.get(1).map_err(|e| e.to_string())?;
 
-        // 删除数据库记录
-        conn.execute("DELETE FROM projects WHERE name = ?", &[&name])
-            .map_err(|e| e.to_string())?;
+        // 开始事务，确保所有删除操作原子性
+        conn.execute("BEGIN TRANSACTION", [])
+            .map_err(|e| format!("开始事务失败: {}", e))?;
 
-        // 删除文件夹及其所有内容
+        // 1. 删除 scan_results 表中所有关联数据
+        if let Err(e) = conn.execute("DELETE FROM scan_results WHERE project_id = ?", &[&project_id]) {
+            let _ = conn.execute("ROLLBACK", []);
+            return Err(format!("删除 scan_results 失败: {}", e));
+        }
+
+        // 2. 如果当前项目是正在使用的项目，清理 app_config
+        let current_project_id = conn.query_row(
+            "SELECT value FROM app_config WHERE key = 'current_project_id'",
+            [],
+            |row| row.get::<_, Option<String>>(0)
+        ).unwrap_or(None);
+
+        if let Some(current_id) = current_project_id {
+            if current_id == project_id {
+                if let Err(e) = conn.execute("DELETE FROM app_config WHERE key = 'current_project_id'", []) {
+                    let _ = conn.execute("ROLLBACK", []);
+                    return Err(format!("清理当前项目配置失败: {}", e));
+                }
+            }
+        }
+
+        // 3. 删除项目本身
+        if let Err(e) = conn.execute("DELETE FROM projects WHERE id = ?", &[&project_id]) {
+            let _ = conn.execute("ROLLBACK", []);
+            return Err(format!("删除项目记录失败: {}", e));
+        }
+
+        // 提交事务
+        conn.execute("COMMIT", [])
+            .map_err(|e| format!("提交事务失败: {}", e))?;
+
+        // 4. 删除文件夹及其所有内容（在事务外，因为文件操作可能失败但不影响数据库一致性）
         std::fs::remove_dir_all(&folder_path).map_err(|e| format!("删除项目文件夹失败: {}", e))?;
     }
 
