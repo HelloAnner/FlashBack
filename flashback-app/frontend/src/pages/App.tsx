@@ -1,18 +1,23 @@
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { mkdir, BaseDirectory } from '@tauri-apps/plugin-fs'
+import { open } from '@tauri-apps/plugin-dialog'
 import ThemeToggle from '../components/ThemeToggle'
 import Sidebar from '../components/Sidebar'
 import CustomSelect from '../components/CustomSelect'
 import Pagination from '../components/Pagination'
 import DeleteConfirmModal from '../components/DeleteConfirmModal'
-import { initDatabase, getProjectsPaginated, deleteProject, createProject, type Project, type ProjectListResponse } from '../lib/tauri'
+import { initDatabase, getProjectsPaginated, deleteProject, createProject, getProjectByName, getProjectScanRoots, type Project, type ProjectListResponse, setCurrentProject } from '../lib/tauri'
+import { useProjectStore } from '../lib/projectStore'
 
 export default function App() {
   const navigate = useNavigate()
   const location = useLocation()
   const [projectName, setProjectName] = useState<string>('')
   const [timeRange, setTimeRange] = useState<string>('past_year')
+  const [scanScope, setScanScope] = useState<'ALL' | 'CUSTOM'>('ALL')
+  const [scanFolders, setScanFolders] = useState<string[]>([])
+  const { setProject } = useProjectStore()
 
   // 分页相关状态
   const [pageData, setPageData] = useState<ProjectListResponse>({
@@ -27,6 +32,7 @@ export default function App() {
   // UI 状态
   const [loading, setLoading] = useState(true)
   const [deleting, setDeleting] = useState<string | null>(null)
+  const [scanRootsMap, setScanRootsMap] = useState<Record<string, string[]>>({})
 
   // 删除确认弹窗
   const [deleteModal, setDeleteModal] = useState({
@@ -44,6 +50,19 @@ export default function App() {
       setPageData(response)
       setCurrentPage(page)
       console.log(`已加载项目列表 (第 ${page} 页):`, response.projects.length, '个，共', response.total, '个')
+
+      // 加载每个项目的实际扫描根目录（显示在表格路径处）
+      const rootsEntries = await Promise.all(
+        response.projects.map(async (p) => {
+          try {
+            const roots = await getProjectScanRoots(p.id)
+            return [p.id, roots] as const
+          } catch {
+            return [p.id, []] as const
+          }
+        })
+      )
+      setScanRootsMap(Object.fromEntries(rootsEntries))
     } catch (e) {
       console.error('加载项目列表失败:', e)
     }
@@ -106,7 +125,7 @@ export default function App() {
     try {
       // 先创建项目（如果不存在）
       console.log('开始创建项目:', name, timeRange)
-      await createProject({ name, time_range: timeRange })
+      const p = await createProject({ name, time_range: timeRange, scan_scope: scanScope, scan_folders: scanFolders })
       console.log('项目创建成功')
 
       // 重新加载项目列表，显示新项目
@@ -115,9 +134,15 @@ export default function App() {
       // 清空输入框
       setProjectName('')
 
+      // 记录全局选择的项目（供右上角显示 & 后续请求携带 id）
+      setProject({ id: p.id, name: p.name, time_range: p.time_range, scan_scope: (p as any).scan_scope, scan_folders: (p as any).scan_folders ? JSON.parse((p as any).scan_folders) : [] })
+      // 同步写入后端 KV（跨进程/重启也能获取）
+      await setCurrentProject(p.id)
+
       // 跳转到扫描页面
       navigate('/processing', {
         state: {
+          projectId: p.id,
           projectName: name,
           timeRange
         }
@@ -126,12 +151,24 @@ export default function App() {
       console.error('创建项目失败:', e)
       // 如果项目已存在，也跳转到扫描页面
       if (String(e).includes('UNIQUE constraint')) {
-        navigate('/processing', {
-          state: {
-            projectName: name,
-            timeRange
+        try {
+          const p = await getProjectByName(name)
+          if (p) {
+            // 同步设置为当前项目（store + 后端KV）
+            setProject({ id: p.id, name: p.name, time_range: p.time_range, scan_scope: (p as any).scan_scope, scan_folders: (p as any).scan_folders ? JSON.parse((p as any).scan_folders) : [] })
+            await setCurrentProject(p.id)
+            navigate('/processing', {
+              state: {
+                projectId: p.id,
+                projectName: p.name,
+                timeRange
+              }
+            })
+            return
           }
-        })
+        } catch {}
+        // 回退：仅携带名称与时间范围（扫描页会从后端KV或store兜底）
+        navigate('/processing', { state: { projectName: name, timeRange } })
       } else {
         alert(`创建项目失败: ${e}`)
       }
@@ -185,6 +222,22 @@ export default function App() {
     { value: 'past_week', label: '过去一周' }
   ]
 
+  const scanScopeOptions = [
+    { value: 'ALL', label: '全部常见目录' },
+    { value: 'CUSTOM', label: '自定义目录' },
+  ]
+
+  const handlePickFolders = async () => {
+    try {
+      const res = await open({ directory: true, multiple: true })
+      if (!res) return
+      const arr = Array.isArray(res) ? res : [res]
+      setScanFolders(prev => Array.from(new Set([...(prev || []), ...arr])))
+    } catch (e) {
+      console.error('选择目录失败:', e)
+    }
+  }
+
   return (
     <div className="flex min-h-screen bg-slate-50 dark:bg-slate-900 font-display">
       <Sidebar />
@@ -234,6 +287,41 @@ export default function App() {
                   onChange={setTimeRange}
                   placeholder="选择时间范围"
                 />
+              </div>
+
+              {/* 扫描范围 */}
+              <div className="mb-3.5">
+                <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  扫描范围
+                </label>
+                <CustomSelect
+                  options={scanScopeOptions}
+                  value={scanScope}
+                  onChange={(v) => {
+                    setScanScope(v as any)
+                    if (v === 'ALL') setScanFolders([])
+                  }}
+                  placeholder="选择扫描范围"
+                />
+                {scanScope === 'CUSTOM' && (
+                  <div className="mt-1">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handlePickFolders}
+                        className="px-2 py-1 rounded border border-slate-200 dark:border-slate-700 text-[11px] hover:bg-slate-50 dark:hover:bg-slate-700"
+                      >选择目录</button>
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400">默认已包含项目目录</span>
+                    </div>
+                    {scanFolders.length > 0 && (
+                      <div className="mt-1 max-h-16 overflow-auto rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/30 p-1">
+                        {scanFolders.map((p) => (
+                          <div key={p} className="text-[10px] text-slate-600 dark:text-slate-300 font-mono truncate">{p}</div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* 开始扫描按钮 */}
@@ -298,7 +386,11 @@ export default function App() {
                         <div className="flex items-center gap-3 text-[10px] text-slate-500 dark:text-slate-400 font-mono mt-0.5">
                           <span className="flex items-center gap-0.5">
                             <span className="material-symbols-outlined text-[10px]">folder</span>
-                            <span className="truncate max-w-[200px] md:max-w-[300px]">{project.folder_path}</span>
+                            <span className="truncate max-w-[200px] md:max-w-[300px]">
+                              {(scanRootsMap[project.id] && scanRootsMap[project.id].length > 0)
+                                ? scanRootsMap[project.id].join(' | ')
+                                : '计算中...'}
+                            </span>
                           </span>
                           <span className="hidden md:inline">|</span>
                           <span>{project.created_at.split(' ')[0]}</span>
@@ -310,7 +402,11 @@ export default function App() {
                         {/* 选择按钮 */}
                         <button
                           title="选择项目并开始扫描"
-                          onClick={() => { setProjectName(project.name) }}
+                          onClick={async () => {
+                            setProject({ id: project.id, name: project.name, time_range: project.time_range, scan_scope: project.scan_scope as any, scan_folders: (project as any).scan_folders ? JSON.parse((project as any).scan_folders) : [] })
+                            setProjectName(project.name)
+                            await setCurrentProject(project.id)
+                          }}
                           className="p-1.5 rounded hover:bg-primary/10 text-slate-600 dark:text-slate-300 hover:text-primary transition-all"
                         >
                           <span className="material-symbols-outlined text-[16px]">check_circle</span>

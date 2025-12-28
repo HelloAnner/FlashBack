@@ -8,6 +8,9 @@ export interface Project {
   name: string
   folder_path: string
   time_range: string
+  // 新增：扫描范围（全部/自定义）与自定义目录列表
+  scan_scope?: 'ALL' | 'CUSTOM'
+  scan_folders?: string[]
   scan_summary: string | null
   created_at: string
   updated_at: string
@@ -16,10 +19,33 @@ export interface Project {
 export interface ProjectInput {
   name: string
   time_range: string
+  scan_scope?: 'ALL' | 'CUSTOM'
+  scan_folders?: string[]
 }
 
 export interface ProjectListResponse {
   projects: Project[]
+  total: number
+  page: number
+  total_pages: number
+}
+
+export interface ResultItem {
+  id: string
+  project_id: string
+  file_path: string
+  file_type: string
+  source: string
+  created_at: string
+  modified_at: string
+  size_bytes: number
+  is_valid: boolean
+  inserted_at: string
+  updated_at: string
+}
+
+export interface Paged<T> {
+  items: T[]
   total: number
   page: number
   total_pages: number
@@ -99,6 +125,24 @@ export async function deleteProject(name: string): Promise<void> {
 
 // ==================== 扫描 API ====================
 
+// 携带 project_id 触发扫描；为兼容旧流程，仍保留 name+timeRange 入参
+export async function startScanWithId(projectId: string, onLog: (p: {icon: string; text: string}) => void, onProgress: (v: number) => void, onDone: (s: ScanSummary) => void) {
+  await listen('scan-log', (e) => onLog(e.payload as any))
+  await listen('scan-progress', (e) => onProgress((e.payload as any).progress))
+  await listen('scan-done', (e) => onDone(e.payload as any))
+  try {
+    await invoke('start_scan_by_id', { project_id: projectId })
+  } catch (e: any) {
+    const msg = String(e || '')
+    if (msg.includes('missing required key project_id') || msg.includes('invalid args')) {
+      await invoke('start_scan_by_id', { projectId })
+      return
+    }
+    throw e
+  }
+}
+
+// 兼容旧：按名称 + 时间范围触发（逐步淘汰）
 export async function startScan(projectName: string, timeRange: string, onLog: (p: {icon: string; text: string}) => void, onProgress: (v: number) => void, onDone: (s: ScanSummary) => void) {
   await listen('scan-log', (e) => onLog(e.payload as any))
   await listen('scan-progress', (e) => onProgress((e.payload as any).progress))
@@ -118,4 +162,36 @@ export async function startScan(projectName: string, timeRange: string, onLog: (
 
 export async function getSummary(): Promise<ScanSummary | null> {
   return await invoke('get_scan_summary')
+}
+
+// 获取扫描结果（分页）
+export async function getResultsPaginated(project_id: string, page: number, page_size: number): Promise<Paged<ResultItem>> {
+  return await invoke('get_results_paginated', { project_id, page, page_size })
+}
+
+// ====== KV 配置 ======
+export async function setCurrentProject(project_id: string): Promise<void> {
+  try {
+    await invoke('set_current_project', { project_id })
+  } catch (e: any) {
+    const msg = String(e || '')
+    if (msg.includes('project_id') || msg.includes('invalid args')) {
+      await invoke('set_current_project', { projectId: project_id })
+      return
+    }
+    throw e
+  }
+}
+
+export async function getCurrentProject(): Promise<Project | null> {
+  return await invoke('get_current_project')
+}
+
+export async function getResultsPaginatedAdv(params: { project_id: string; page: number; page_size: number; q?: string; file_types?: string[] }): Promise<Paged<ResultItem>> {
+  const { project_id, page, page_size, q, file_types } = params
+  return await invoke('get_results_paginated_adv', { project_id, page, page_size, q: q ?? null, file_types: file_types ?? null })
+}
+
+export async function getProjectScanRoots(project_id: string): Promise<string[]> {
+  return await invoke('get_project_scan_roots', { project_id })
 }

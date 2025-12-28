@@ -1,9 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import Sidebar from '../components/Sidebar'
-import { startScan, type ScanSummary } from '../lib/tauri'
+import Pagination from '../components/Pagination'
+import { getResultsPaginatedAdv, getProjectScanRoots } from '../lib/tauri'
+import { startScan, startScanWithId, type ScanSummary, getResultsPaginated, type ResultItem, getCurrentProject, getProjectByName, setCurrentProject } from '../lib/tauri'
+import { useProjectStore } from '../lib/projectStore'
 
 interface LogEntry {
   icon: string
@@ -15,21 +18,44 @@ export default function Processing() {
   const location = useLocation()
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [progress, setProgress] = useState(0)
+  const [projectId, setProjectId] = useState<string>('')
   const [projectName, setProjectName] = useState<string>('')
   const [timeRange, setTimeRange] = useState<string>('')
+  const { project, setProject } = useProjectStore()
   const [scanComplete, setScanComplete] = useState(false)
   const [scanSummary, setScanSummary] = useState<ScanSummary | null>(null)
+  const [items, setItems] = useState<ResultItem[]>([])
+  const [page, setPage] = useState(1)
+  const PAGE_SIZE = 8
+  const [total, setTotal] = useState(0)
+  const [totalPages, setTotalPages] = useState(1)
+  const [currentFolder, setCurrentFolder] = useState('')
+  const lastProgressQueriedRef = useRef(0)
+  const [query, setQuery] = useState('')
+  const [typesFilter, setTypesFilter] = useState<string[]>([])
+  const [scanRoots, setScanRoots] = useState<string[]>([])
 
   useEffect(() => {
-    // 从路由状态获取参数
-    const state = location.state as { projectName?: string; timeRange?: string } | null
-    const name = state?.projectName || ''
-    const range = state?.timeRange || ''
-
-    setProjectName(name)
-    setTimeRange(range)
-
-    console.log('Processing - projectName:', name, 'timeRange:', range)
+    // 优先从后端 KV 获取当前处理项目；回退路由或本地 store
+    (async () => {
+      try {
+        const p = await getCurrentProject()
+        if (p) {
+          setProjectId(p.id)
+          setProjectName(p.name)
+          setTimeRange((p as any).time_range || '')
+          return
+        }
+      } catch {}
+      const state = location.state as { projectId?: string; projectName?: string; timeRange?: string } | null
+      const id = state?.projectId || project?.id || ''
+      const name = state?.projectName || project?.name || ''
+      const range = state?.timeRange || ''
+      setProjectId(id)
+      setProjectName(name)
+      setTimeRange(range)
+      console.log('Processing - projectName:', name, 'timeRange:', range)
+    })()
   }, [location.state])
 
   useEffect(() => {
@@ -42,12 +68,27 @@ export default function Processing() {
     const setupListeners = async () => {
       // 监听日志
       unlistenLog = await listen<{ icon: string; text: string }>('scan-log', (event) => {
-        setLogs(prev => [...prev, { icon: event.payload.icon, text: event.payload.text }])
+        const text = event.payload.text
+        setLogs(prev => [...prev, { icon: event.payload.icon, text }])
+        if (text?.startsWith('扫描目录: ')) {
+          setCurrentFolder(text.replace('扫描目录: ', ''))
+        }
       })
 
       // 监听进度
-      unlistenProgress = await listen<{ progress: number }>('scan-progress', (event) => {
-        setProgress(event.payload.progress)
+      unlistenProgress = await listen<{ progress: number }>('scan-progress', async (event) => {
+        const p = event.payload.progress
+        setProgress(p)
+        // 扫描过程中，按 10% 阶梯刷新一次分页数据与总数
+        if (projectId && p - lastProgressQueriedRef.current >= 10) {
+          lastProgressQueriedRef.current = p
+          try {
+            const res = await getResultsPaginatedAdv({ project_id: projectId, page, page_size: PAGE_SIZE, q: query, file_types: typesFilter })
+            setItems(res.items); setTotal(res.total); setTotalPages(res.total_pages)
+          } catch (e) {
+            console.warn('刷新扫描结果失败:', e)
+          }
+        }
       })
 
       // 监听完成
@@ -55,21 +96,52 @@ export default function Processing() {
         console.log('Scan completed:', event.payload)
         setScanSummary(event.payload)
         setScanComplete(true)
+        // 扫描完成后刷新一次当前页数据
+        if (projectId) {
+          getResultsPaginatedAdv({ project_id: projectId, page, page_size: PAGE_SIZE, q: query, file_types: typesFilter }).then(res => {
+            setItems(res.items); setTotal(res.total); setTotalPages(res.total_pages)
+          }).catch(console.error)
+        }
       })
 
-      // 启动扫描
+      // 启动扫描（必须拿到 projectId，若缺失则通过名称补齐 id 并回写后端 KV，再按 id 扫描）
       try {
-        console.log('Starting scan:', { projectName, timeRange })
-        await projectName && timeRange && startScan(
-          projectName,
-          timeRange,
-          (log) => setLogs(prev => [...prev, log]),
-          (p) => setProgress(p),
-          (summary) => {
-            setScanSummary(summary)
-            setScanComplete(true)
+        console.log('Starting scan:', { projectId, projectName, timeRange })
+        let pid = projectId
+        if (!pid && projectName) {
+          try {
+            const p = await getProjectByName(projectName)
+            if (p) {
+              pid = p.id
+              await setCurrentProject(pid)
+            }
+          } catch {}
+        }
+        if (pid) {
+          await startScanWithId(
+            pid,
+            (log) => setLogs(prev => [...prev, log]),
+            (p) => setProgress(p),
+            (summary) => {
+              setScanSummary(summary)
+              setScanComplete(true)
+            }
+          )
+        } else {
+          // 兜底：老流程；提示用户尽快在首页设置为当前项目
+          if (projectName && timeRange) {
+            await startScan(
+              projectName,
+              timeRange,
+              (log) => setLogs(prev => [...prev, log]),
+              (p) => setProgress(p),
+              (summary) => {
+                setScanSummary(summary)
+                setScanComplete(true)
+              }
+            )
           }
-        )
+        }
       } catch (e) {
         console.error('Scan failed:', e)
         setLogs(prev => [...prev, { icon: 'error', text: `扫描失败: ${e}` }])
@@ -84,13 +156,47 @@ export default function Processing() {
       unlistenDone?.()
     }
   }, [projectName, timeRange, navigate])
+  
+  // 首次进入与翻页时，加载一次结果（如果 projectId 存在）
+  useEffect(() => {
+    if (!projectId) return
+    getResultsPaginatedAdv({ project_id: projectId, page, page_size: PAGE_SIZE, q: query, file_types: typesFilter })
+      .then(res => { setItems(res.items); setTotal(res.total); setTotalPages(res.total_pages) })
+      .catch(console.error)
+  }, [projectId, page, query, typesFilter])
+
+  // 加载扫描根目录（用于 UI 提示）
+  useEffect(() => {
+    if (!projectId) return
+    getProjectScanRoots(projectId).then(setScanRoots).catch(() => setScanRoots([]))
+  }, [projectId])
 
   const handleSelectStyle = () => {
-    navigate('/configure', { state: { summary: scanSummary, projectName } })
+    navigate('/configure', { state: { summary: scanSummary, projectId, projectName } })
   }
 
-  const handleViewResults = () => {
-    navigate('/results', { state: { summary: scanSummary, projectName } })
+  // 查看结果入口已移除；扫描完成后将“重新扫描”按钮放到原查看结果的位置
+
+  const handleRescan = async () => {
+    if (!projectId) return
+    setScanComplete(false)
+    setLogs([])
+    setProgress(0)
+    setCurrentFolder('')
+    setPage(1)
+    try {
+      await startScanWithId(
+        projectId,
+        (log) => setLogs(prev => [...prev, log]),
+        (p) => setProgress(p),
+        (summary) => {
+          setScanSummary(summary)
+          setScanComplete(true)
+        }
+      )
+    } catch (e) {
+      console.error('Rescan failed:', e)
+    }
   }
 
   return (
@@ -101,9 +207,12 @@ export default function Processing() {
         {projectName && (
           <div className="absolute top-4 right-4 z-20">
             <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 shadow-sm">
-              <div className="flex items-center gap-1.5">
-                <span className="text-[9px] text-slate-500 dark:text-slate-400">当前项目</span>
-                <span className="text-[11px] font-bold text-primary">{projectName}</span>
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[9px] text-slate-500 dark:text-slate-400">当前项目</span>
+                  <span className="text-[11px] font-bold text-primary">{projectName}</span>
+                </div>
+                {/* 扫描完成后重排按钮：顶部不再显示重新扫描 */}
               </div>
             </div>
           </div>
@@ -112,16 +221,18 @@ export default function Processing() {
         {/* 侧边栏占位空间 */}
         <div className="flex-1 flex flex-col items-center justify-center px-8 py-8 w-full max-w-4xl mx-auto">
           {/* 进度条 */}
-          <div className="w-full max-w-2xl mb-6">
+          {/* 进度条 + 当前扫描目录 + 总数 */}
+          <div className="w-full max-w-2xl mb-4">
             <div className="flex items-center justify-between mb-1">
               <span className="text-[12px] font-medium text-slate-600 dark:text-slate-300">扫描进度</span>
               <span className="text-[12px] font-mono text-primary">{progress}%</span>
             </div>
             <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-1.5 overflow-hidden">
-              <div
-                className="bg-primary h-1.5 rounded-full transition-all duration-300 ease-out"
-                style={{ width: `${progress}%` }}
-              />
+              <div className="bg-primary h-1.5 rounded-full transition-all duration-300 ease-out" style={{ width: `${progress}%` }} />
+            </div>
+            <div className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between">
+              <span className="truncate">当前目录：{currentFolder || '等待开始...'}</span>
+              <span>已入库：{total} 条</span>
             </div>
           </div>
 
@@ -164,63 +275,77 @@ export default function Processing() {
                 <span className="material-symbols-outlined text-[12px]">palette</span>
                 选择风格
               </button>
+              {/* 将“重新扫描”移动到原“查看结果”的位置与样式 */}
               <button
-                onClick={handleViewResults}
-                className="flex items-center gap-1 px-3 py-2 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg font-medium text-[12px] transition-all active:scale-95"
+                onClick={handleRescan}
+                disabled={!projectId}
+                className="flex items-center gap-1 px-3 py-2 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg font-medium text-[12px] transition-all active:scale-95 disabled:opacity-50"
               >
-                <span className="material-symbols-outlined text-[12px]">visibility</span>
-                查看结果
+                <span className="material-symbols-outlined text-[12px]">cached</span>
+                重新扫描
               </button>
             </div>
           )}
 
-          {/* 系统日志 */}
-          <div className="w-full max-w-2xl relative">
-            <div className="absolute -inset-0.5 bg-gradient-to-b from-primary/20 to-transparent rounded-xl blur opacity-20" />
-            <div className="bg-white/50 dark:bg-[#1e293b]/50 backdrop-blur-md rounded-xl border border-slate-200 dark:border-slate-700 shadow-xl overflow-hidden">
-              <div className="px-3 py-2 border-b border-slate-200/50 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-900/50 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="flex gap-1">
-                    <div className="w-2 h-2 rounded-full bg-red-500/80" />
-                    <div className="w-2 h-2 rounded-full bg-yellow-500/80" />
-                    <div className="w-2 h-2 rounded-full bg-green-500/80" />
-                  </div>
-                  <span className="ml-2 text-[11px] font-mono text-slate-500 dark:text-slate-400 font-medium">System_Log.log</span>
-                </div>
-                <div className="flex items-center gap-2 text-[11px] text-slate-400 dark:text-slate-500 font-mono">
-                  <span className="w-1 h-1 rounded-full bg-primary animate-pulse" />
-                  {scanComplete ? 'COMPLETE' : 'LIVE'}
-                </div>
+          {/* 搜索与筛选 */}
+          <div className="w-full max-w-2xl mb-2">
+            <div className="flex items-center gap-2">
+              <input value={query} onChange={e => { setPage(1); setQuery(e.target.value) }} placeholder="搜索文件路径..." className="flex-1 px-2 py-1 text-[11px] rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800" />
+              <select className="px-2 py-1 text-[11px] rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800" onChange={e => { const v=e.target.value; setPage(1); setTypesFilter(v? [v] : []) }}>
+                <option value="">全部类型</option>
+                {['txt','md','pdf','docx','xlsx','pptx','png','jpg','jpeg','csv'].map(t => (<option key={t} value={t}>{t}</option>))}
+              </select>
+            </div>
+            {scanRoots.length>0 && (
+              <div className="mt-1 text-[10px] text-slate-500 dark:text-slate-400 truncate">扫描根目录：{scanRoots.join('  |  ')}</div>
+            )}
+          </div>
+
+          {/* 扫描结果（分页展示全部数据）*/}
+          <div className="w-full max-w-2xl">
+            <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-sm">
+              <div className="flex items-center justify-between px-3 py-2 border-b border-slate-200 dark:border-slate-700">
+                <div className="text-[12px] font-bold text-slate-700 dark:text-slate-200">扫描结果（共 {total} 条）</div>
               </div>
-              <div className="h-56 p-3 overflow-hidden relative">
-                <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-white dark:from-[#1e293b] via-transparent to-white dark:to-[#1e293b] opacity-40 z-10" />
-                <ul className="font-mono text-[12px] space-y-2 pb-8 relative z-0 flex flex-col justify-end h-full overflow-y-auto">
-                  {logs.length === 0 ? (
-                    <li className="flex items-start gap-2 text-slate-500 dark:text-slate-500">
-                      <span className="text-blue-400 shrink-0 mt-0.5 material-symbols-outlined text-[12px]">hourglass</span>
-                      <span>等待扫描启动...</span>
-                    </li>
-                  ) : (
-                    logs.map((log, idx) => (
-                      <li key={idx} className="flex items-start gap-2 text-slate-600 dark:text-slate-400">
-                        <span className={`shrink-0 mt-0.5 material-symbols-outlined text-[12px] ${
-                          log.icon === 'check_circle' ? 'text-green-500' :
-                          log.icon === 'error' ? 'text-red-500' :
-                          log.icon === 'shield' ? 'text-yellow-500' :
-                          log.icon === 'folder' ? 'text-blue-400' :
-                          log.icon === 'folder_open' ? 'text-blue-400' :
-                          log.icon === 'chat' ? 'text-purple-400' :
-                          log.icon === 'description' ? 'text-purple-400' :
-                          log.icon === 'data_object' ? 'text-cyan-400' :
-                          log.icon === 'sync' ? 'text-primary animate-spin' :
-                          'text-slate-400'
-                        }`}>{log.icon}</span>
-                        <span className={log.icon === 'sync' ? 'font-medium text-slate-900 dark:text-white' : ''}>{log.text}</span>
-                      </li>
-                    ))
-                  )}
-                </ul>
+              <div className="divide-y divide-slate-200 dark:divide-slate-700">
+                <div className="grid grid-cols-12 gap-2 px-3 py-2 bg-slate-50 dark:bg-slate-900/40 text-[11px] text-slate-500 dark:text-slate-400">
+                  <div className="col-span-6">文件路径</div>
+                  <div className="col-span-1">类型</div>
+                  <div className="col-span-2">来源</div>
+                  <div className="col-span-1 text-right">大小</div>
+                  <div className="col-span-1">创建</div>
+                  <div className="col-span-1">修改</div>
+                  <div className="col-span-1 text-center">有效</div>
+                </div>
+                {items.length === 0 ? (
+                  <div className="px-3 py-8 text-center text-[12px] text-slate-500 dark:text-slate-400">暂无数据</div>
+                ) : (
+                  items.map(r => (
+                    <div key={r.id} className="grid grid-cols-12 gap-2 px-3 py-2 text-[11px] text-slate-700 dark:text-slate-300">
+                      <div className="col-span-6 truncate font-mono">{r.file_path}</div>
+                      <div className="col-span-1">{r.file_type || '-'}</div>
+                      <div className="col-span-2">{r.source}</div>
+                      <div className="col-span-1 text-right">{(r.size_bytes/1024).toFixed(1)} KB</div>
+                      <div className="col-span-1">{r.created_at.split(' ')[0]}</div>
+                      <div className="col-span-1">{r.modified_at.split(' ')[0]}</div>
+                      <div className="col-span-1 text-center">
+                        <span className={`inline-flex items-center justify-center w-4 h-4 rounded ${r.is_valid ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
+              {totalPages > 1 && (
+                <div className="border-t border-slate-200 dark:border-slate-700">
+                  <Pagination
+                    currentPage={page}
+                    totalPages={totalPages}
+                    totalItems={total}
+                    pageSize={PAGE_SIZE}
+                    onPageChange={setPage}
+                  />
+                </div>
+              )}
             </div>
           </div>
         </div>

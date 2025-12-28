@@ -1,16 +1,32 @@
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useState, useEffect } from 'react'
+import { useProjectStore } from '../lib/projectStore'
+import { getCurrentProject } from '../lib/tauri'
 import Sidebar from '../components/Sidebar'
 
 export default function Configure() {
   const navigate = useNavigate()
   const location = useLocation()
+  const [projectId, setProjectId] = useState<string>('')
   const [projectName, setProjectName] = useState<string>('')
+  const { project } = useProjectStore()
 
   useEffect(() => {
-    const state = location.state as { summary?: any; projectName?: string } | null
-    const name = state?.projectName || ''
-    setProjectName(name)
+    (async () => {
+      try {
+        const p = await getCurrentProject()
+        if (p) {
+          setProjectId(p.id)
+          setProjectName(p.name)
+          return
+        }
+      } catch {}
+      const state = location.state as { summary?: any; projectId?: string; projectName?: string } | null
+      const id = state?.projectId || project?.id || ''
+      const name = state?.projectName || project?.name || ''
+      setProjectId(id)
+      setProjectName(name)
+    })()
   }, [location.state])
 
   return (
@@ -44,7 +60,7 @@ export default function Configure() {
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">在生成之前自定义您的复盘分析报告的内容、风格与格式。</p>
               </div>
               <button
-                onClick={() => navigate('/results', { state: { projectName } })}
+                onClick={() => navigate('/results', { state: { projectId, projectName } })}
                 className="flex items-center gap-1 px-2 py-1.5 bg-primary hover:bg-blue-700 text-white rounded-lg font-medium text-[11px] shadow-lg shadow-blue-500/30 transition-all active:scale-95"
               >
                 <span className="material-symbols-outlined text-[11px]">auto_fix_high</span>
